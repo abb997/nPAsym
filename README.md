@@ -9,10 +9,10 @@ the plugin code and Scala libraries.
 
 Availability
 
-As a JAR file, the plugin can be downloaded from (target folder): https://github.com/ ...  After download it has 
-to be placed in the Plugins subfolder (./plugins – in Linux) within the ImageJ application folder. 
+As a JAR file, the plugin can be downloaded from (target folder): https://github.com/abb997/nPAsym/blob/master/bld/nPAsymm-assembly-0.1.jar 
+After download it has to be placed in the Plugins subfolder (./plugins – in Linux) within the ImageJ application folder. 
 Next time ImageJ starts, nPAsym will be available in the Plugins menu. 
-Demo images can be downloaded from: https://github.com/ ...
+Demo images can be downloaded from: https://github.com/abb997/nPAsym/tree/master/img 
 
 Building an executable JAR file
 
