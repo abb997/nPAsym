@@ -1,4 +1,4 @@
-name := "nPAsymm"
+name := "nPAsym"
 
 version := "0.1"
 
