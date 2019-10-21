@@ -139,7 +139,7 @@ class Img(val imgPlus: ImagePlus, val AA: Area, val bkgch: ImgCellT, noiseSize: 
 }
 //Img
 
-class nPAsymm_ extends PlugInFilter {
+class nPAsym_ extends PlugInFilter {
   var minObjSize = 5
   override def setup(arg: String, imp: ImagePlus): Int = {
     if ("about" == arg) {
