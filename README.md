@@ -32,7 +32,7 @@ Short user guidelines
 2. Segment it using built-in ImageJ functions.
 3. Run nPAsym from the Plugins submenu of ImageJ.
 4. If necessary, change the value of a lower size threshold (in pixels) in a pop-up box that comes up. 
-5. Save PA quantities to a .cvs or .txt file by clicking the Save as button in the menu of the Results table. 
+5. Save PA quantities to a .csv or .txt file by clicking the Save as button in the menu of the Results table. 
 6. If necessary, save the output image by selecting the Save option in the File menu.
 
 Contributors
