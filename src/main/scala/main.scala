@@ -1,14 +1,17 @@
 import Ut._
-import ij.gui.NewImage //ImgCellT
+import ij.gui.NewImage
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
-
 import ij._
 import ij.measure.ResultsTable
 import ij.plugin.filter.PlugInFilter
 import ij.process._
+import ij.IJ._
 import java.awt._
+
+import ij.gui._
+import ij.plugin.ImageCalculator
 
 object Svc1 {
   def list2area(ll: ListBuffer[Array[Ut.ImgCellT]]) : Area = {
@@ -55,15 +58,12 @@ class Area(val Xsz: Int, val dat: Array[Ut.ImgCellT], val imgProc: ImageProcesso
   }
 
   def drawInfoXY(N: Int, obj: CellBorderXY, rt: ResultsTable): Unit = {
-    //origin and circle
-    val pa = Svc.PA(obj,Xsz,Lbl.obj,dat)*100.0
-    //val r = obj.min
     val (x,y) = (obj.center.x.toInt,obj.center.y.toInt)
-    val str = f"${N}; (${x},${y}); PA=${pa}%.2f;"
+    val str = f"${N}; (${x},${y}); PA=${obj.pa}%.2f;"
     IJ.log(str)
     rt.incrementCounter()
     rt.addValue("#",N); rt.addValue("X",x); rt.addValue("Y",y)
-    rt.addValue("PA",pa)
+    rt.addValue("PA",obj.pa)
     if (null != imgProc) {
       //drawing
       imgProc.setFont(new Font("SansSerif",Font.PLAIN,33))
@@ -95,66 +95,124 @@ class Img(val imgPlus: ImagePlus, val AA: Area, val bkgch: ImgCellT, noiseSize: 
     while (!objAll.isEmpty) {
       val cell = pic.objGet(objAll, objAll.head, AA.Xsz)
       objAll --= cell.pixels
+      //IJ.log(s"added at (${cell.center.x.toInt},${cell.center.y.toInt}) sz=${cell.pixels.size}") //debug
       if (cell.pixels.size >= noiseSize) objs0.add(cell)
       else ix += 1
     }
 
-    val max: Int = objs0.maxBy(x => x.pixels.size).pixels.size
-    val min: Int = objs0.minBy(x => x.pixels.size).pixels.size
+    val max: Int = objs0.map(_.pixels.size).max
+    val min: Int = objs0.map(_.pixels.size).min
+    val maxS: Double = objs0.map(_.pa).max
+    //objs0.foreach(cell => IJ.log(s"added at (${cell.center.x.toInt},${cell.center.y.toInt}) sz=${cell.pixels.size}; pa=${cell.pa}")) //debug
     var minSize: Int = min + (max - min) / 10
+    var maxSize: Int = max
+    var maxSymm0: Double = maxS //currently possible maximum
+    var maxSymm: Double = maxS  //user input
     val msg = s"Input minimum object size [$min .. $max]"
-    var m = -1
-    var is0 = true
+    var isExit=false
     // loop on object processing, uncomment if necessary
     //   exit if cancel button pressed in the dialogue window
     do {
-      m = IJ.getNumber(msg, minSize).toInt
-      //always process first loop,
-      // else only if value changed
-      if ((m >= 0 && m != minSize) || is0) {
-        is0 = false
-        minSize = Math.min(Math.max(m, min), max)
-        val objs1 = objs0.filter(x => x.pixels.size >= minSize)
-        IJ.log(s"removed ${objs0.size - objs1.size} objects of size < ${minSize}; (small)")
+      val gd = new GenericDialog(msg)
+      gd.addNumericField(s"value >= $min", minSize, 0, 6, "pixes")
+      gd.addNumericField(s"value <= $max", maxSize, 0, 6, "pixes")
+      gd.addNumericField(f"nPAsym <= $maxS%.3f", maxSymm, 2)
+      gd.showDialog()
+      isExit = gd.wasCanceled()
+      if (!isExit) {
+        val mi = gd.getNextNumber.toInt
+        val ma = gd.getNextNumber.toInt
+        val maS = gd.getNextNumber.toDouble
+        minSize = Math.min(Math.max(mi, min), max)
+        maxSize = Math.max(Math.min(ma, max), min)
+        maxSymm = Math.max(Math.min(maS,maxS), 0.0)
+        val os1 = objs0.filter(x => x.pixels.size >= minSize && x.pixels.size <= maxSize)
         IJ.log(s"removed ${ix} objects of size < ${noiseSize}; (noise)")
+        IJ.log(s"removed ${objs0.size - os1.size} objects of size between ${minSize} and ${maxSize} ; (small and big)")
+        val objs1 = os1.filter(x => {x.pa <= maxSymm})
+        IJ.log(s"removed ${os1.size - objs1.size} objects of PA greter than ${maxSymm}; (overlapped cells)")
 
         //clear image, draw objects
         AA.dat.zipWithIndex.foreach(x => AA.dat(x._2) = Lbl.bkg)
         objs1.par.foreach(x => {
           x.pixels.foreach(AA.dat(_) = Lbl.mark)
           x.border.foreach(AA.dat(_) = Lbl.obj)
+          x.paSet.foreach(AA.dat(_) = Lbl.obj)
           AA.dat(Svc.l2xy_1(x.center, AA.Xsz)) = Lbl.obj
         })
-
+ 
         // output results
         val rt = new ResultsTable()
-        objs1.toArray.sortWith { (a, b) => {
+        objs1.toArray.sortWith { case (a,b) => {
           Svc.l2xy_1(a.center, AA.Xsz) < Svc.l2xy_1(b.center, AA.Xsz)
-        }}.zipWithIndex.foreach(b => AA.drawInfoXY(b._2 + 1, b._1, rt))
+        }}.zipWithIndex.foreach {case (b,i) => AA.drawInfoXY(i + 1, b, rt)}
         imgPlus.updateAndDraw();
         rt.show("Results")
       }
-    } while (m > 0)
+    } while (!isExit) //m>0
   }
 }
 //Img
 
 class nPAsym_ extends PlugInFilter {
   var minObjSize = 5
+
+  case class ColorThreshold(mmin: Int, mmax: Int, filter: String = "pass", is0: Boolean=true) {
+    def this(mmin: Int, mmax: Int, filter: String) = this(mmin-128,mmax-128,filter,false)
+  }
+
+  def prep22(ip0: ImageProcessor): ImageProcessor = {
+    if (ip0.isInstanceOf[ByteProcessor])
+        ip0
+    else {
+      val stack = ip0.convertToRGB().asInstanceOf[ColorProcessor].getHSBStack
+
+      val thr = Array(
+         ColorThreshold(  0,255) //        "Hue"
+        ,ColorThreshold(  0,255) // "Saturation"
+        ,ColorThreshold(166,255) // "Brightness"
+        //  ColorThreshold(  0,212) //        "Hue"
+        // ,ColorThreshold(100,255) // "Saturation"
+        // ,ColorThreshold(166,255) // "Brightness"
+        )
+
+      val ipp =
+        thr.zipWithIndex.map {case (c,i) => {
+          val ip = stack.getProcessor(i+1)     //getProcessor counts from 1
+          //if ("stop" == c.filter) ip.copyBits(ip,0,0,Blitter.COPY_INVERTED)
+          var pp = ip.getPixels.asInstanceOf[Array[Byte]]
+          for (i <- 0 until pp.length if (pp(i)<c.mmin || pp(i)>c.mmax)) {pp(i)=0xff.toByte}
+          ip
+        }}
+      var ip = ipp(0) // stack.getProcessor(1)
+      ip.copyBits(ipp(1),0,0,Blitter.AND)
+      ip.copyBits(ipp(2),0,0,Blitter.AND)
+      //ip.copyBits(ip,0,0,Blitter.COPY_INVERTED)
+      //ip.threshold(157) //decreasing threshold increases background (white) part
+      ip.threshold(99) //decreasing threshold increases background (white) part
+      val pp = ip.getPixels.asInstanceOf[Array[Byte]]
+      if (pp.count(_ != 0) < (pp.size/2).toInt) ip.copyBits(ip,0,0,Blitter.COPY_INVERTED)
+      ip.convertToByte(false)
+      ip
+    }
+  }
+
   override def setup(arg: String, imp: ImagePlus): Int = {
     if ("about" == arg) {
       showAbout()
       Lbl.DONE
     } else {
-      Lbl.DOES_8G + Lbl.DOES_STACKS + Lbl.SUPPORTS_MASKING
+      //Lbl.DOES_8G + Lbl.DOES_STACKS + Lbl.SUPPORTS_MASKING
+      Lbl.DOES_ALL + Lbl.DOES_STACKS + Lbl.SUPPORTS_MASKING
     }
   }
 
   override def run(proc: ImageProcessor): Unit = {
     //new dat(proc,0.asInstanceOf[ImgCellT])
-    val imgPlus = NewImage.createByteImage("Copy",proc.getWidth,proc.getHeight,1,NewImage.GRAY8)
+    val ip0 = prep22(proc)
+    val imgPlus = NewImage.createByteImage("Copy",ip0.getWidth,ip0.getHeight,1,NewImage.GRAY8)
     val ip = imgPlus.getProcessor
-    ip.copyBits(proc,0,0,Blitter.COPY)
+    ip.copyBits(ip0,0,0,Blitter.COPY)
     imgPlus.show()
     new Img(imgPlus,0.asInstanceOf[Byte],minObjSize)
   }

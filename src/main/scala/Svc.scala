@@ -9,6 +9,7 @@ object Lbl {
   val text: Ut.ImgCellT = -93
   //////////////////////////////////
   val DONE: Int = 4096
+  val DOES_ALL = ij.plugin.filter.PlugInFilter.DOES_ALL
   val DOES_8G: Int = 1
   val DOES_STACKS: Int = 32
   val SUPPORTS_MASKING: Int = 64
@@ -40,7 +41,17 @@ case class XY(x: Double = 0.0, y: Double = 0.0) {
   def /(b: Double): XY = XY(this.x/b,this.y/b)
 }
 
-case class CellBorderXY(center: XY, min: Double, max: Double, pixels: Set[Int], border: Set[Int], Xsz: Int = 0)
+case class CellBorderXY(center: XY, min: Double, max: Double
+                       ,pixels: Set[Int], border: Set[Int]
+                       ,Xsz: Int = 0,pa: Double = -1.0
+                       ,paSet: Set[Int]=Set()        // point asymmetry points
+                       ) {
+  //def this(center: XY, min: Double, max: Double
+  //         ,pixels: Set[Int], border: Set[Int]
+  //         ,Xsz: Int = 0) = {
+  //  this(center,min,max,pixels,border,Xsz,Svc.PA(this,Xsz,0,))
+  //}
+}
 
 //polar coordinates (distance, angle)
 case class RAlpha(r: Double = 0.0, a: Double = 0.0)
@@ -168,6 +179,20 @@ object Svc {
     a.map(x => f(x,n)).sum / a.length
   }
 
+  def PA(center: XY, min: Double, max: Double
+        ,A: Array[Ut.ImgCellT], pixels: Set[Int], border: Set[Int], ll: Ut.ImgCellT, Xsz: Int = 0) : CellBorderXY = {
+    val ix = center.x.toInt
+    val iy = center.y.toInt
+    val pp = pixels.filterNot( x => {
+      val a = l2ij(x, Xsz)
+      pixels.contains(l2ij_1(IJcoord(2 * ix - a.i, 2 * iy - a.j), Xsz))
+    })
+    //drawing
+    if (A.size > 0) pp.foreach(A(_) = ll)
+    CellBorderXY(XY(ix,iy),-1.0,-1.0,pixels,border
+                ,Xsz,(pp.size.toDouble / pixels.size.toDouble)*100.0
+                ,pp)
+  }
   def PA( cell: CellBorderXY, Xsz: Int, ll: Ut.ImgCellT
         , A: Array[Ut.ImgCellT]
         ): Double = {
@@ -299,13 +324,19 @@ class area2sets(A: Array[Ut.ImgCellT], Xsz: Int) {
       val dd = border.map(l => {
                 val a = XY(Svc.l2ij(l,Xsz))
                 Math.pow(center.x - a.x,2.0) + Math.pow(center.y - a.y,2.0)})
-      CellBorderXY(center,Math.sqrt(dd.min),Math.sqrt(dd.max),obj1,border,Xsz)
-    }
-    else {
+      // CellBorderXY(center,Math.sqrt(dd.min),Math.sqrt(dd.max),obj1,border,Xsz)
+      Svc.PA(center,Math.sqrt(dd.min),Math.sqrt(dd.max),A,obj1,border,ll.mark,Xsz)
+    } else {
       //map everything except object to bkg
       IJ.log(s"objGet(); removing all;")
       for (i <- 0 until A.size) A(i) = if (ll.mark == A(i)) ll.obj else ll.bkg
-      CellBorderXY(XY(-1.0, -1.0), -1.0, -1.0, A.zipWithIndex.filter(_._1 == ll.bkg).map(_._2).toSet, Set[Int](),Xsz)
+      //CellBorderXY(XY(-1.0, -1.0), -1.0, -1.0, A.zipWithIndex.filter(_._1 == ll.bkg).map(_._2).toSet
+      //  ,Set[Int](),Xsz)
+      Svc.PA(XY(-1,-1),-1.0,-1.0
+            ,Array[Ut.ImgCellT]()
+            ,A.zipWithIndex.filter(_._1 == ll.bkg).map(_._2).toSet //pixels
+            ,Set[Int]()  //border
+            ,ll.bkg,Xsz)
     }
   }
 }
